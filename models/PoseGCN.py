@@ -343,6 +343,7 @@ class SimpleEncoder(nn.Module):
     Args:
       x: [batch_size, n_poses, pose_dim/input_dim]. 
     """
+    #print(x.size())
     B, S, D = x.size()
     # [batch_size, n_joints, model_dim]
     y = self.gc1(x.view(-1, self._output_nodes, self._input_features))

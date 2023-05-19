@@ -157,7 +157,7 @@ class PoseActionFn(object):
       self._writer.add_scalar(                                                                    
          'learning_rate/lr', self._params['learning_rate'], e)
 
-      self._lr_scheduler.step(e)
+      self._lr_scheduler.step()  # removed parameter e as passing epochs to scheduler is deprecated
       self._params['learning_rate'] = self._lr_scheduler.get_last_lr()[0]
 
 

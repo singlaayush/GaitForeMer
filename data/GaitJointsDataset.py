@@ -9,7 +9,7 @@ import random
 
 _TOTAL_ACTIONS = 4
 
-# Mapping from 1-base of NTU to vibe 49 joints
+# Mapping from vibe 49 joints to 1-base of NTU
 # hip, thorax, 
 _MAJOR_JOINTS = [39, 41, 37, 43, 34, 35, 36, 33, 32, 31, 28, 29, 30, 27, 26, 25, 40]
 #                1,   2,  3,  4,  5,  6,  7,  9, 10, 11, 13, 14, 15, 17, 18, 19, 21
@@ -51,8 +51,8 @@ class GaitJointsDataset(torch.utils.data.Dataset):
     self.load_data()
 
   def load_data(self):
-    train_data = pickle.load(open(self.data_dir+"EPG_train_" + str(self.fold) + ".pkl", "rb"))
-    test_data = pickle.load(open(self.data_dir+"EPG_test_" + str(self.fold) + ".pkl", "rb"))
+    train_data = pickle.load(open(self.data_dir + "EPG_train_" + str(self.fold) + ".pkl", "rb"))
+    test_data = pickle.load(open(self.data_dir + "EPG_test_" + str(self.fold) + ".pkl", "rb"))
 
     if self._mode == 'train':
       X_1, Y = self.data_generator(train_data, mode='train', fold_number=self.fold) 
@@ -121,7 +121,7 @@ class GaitJointsDataset(torch.utils.data.Dataset):
     source_seq_len = self._params['source_seq_len']
     target_seq_len = self._params['target_seq_len']
     input_size = 3 * _NMAJOR_JOINTS # not sure if this is right
-    pose_size = 3 * _NMAJOR_JOINTS # note sure if thiis is right
+    pose_size = 3 * _NMAJOR_JOINTS # not sure if this is right
     total_frames = source_seq_len + target_seq_len
     src_seq_len = source_seq_len - 1
 

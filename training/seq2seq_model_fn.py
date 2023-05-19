@@ -223,8 +223,7 @@ class ModelFn(object):
           continue
         sample[k] = sample[k].to(_DEVICE)
 
-      decoder_pred = self._model(
-          sample['encoder_inputs'], sample['decoder_inputs'])
+      decoder_pred = self._model(sample['encoder_inputs'], sample['decoder_inputs'])
 
       selection_loss = 0
       if self._params['query_selection']:
@@ -258,7 +257,7 @@ class ModelFn(object):
           elif self._params['downstream_strategy'] == 'class':
             step_loss = activity_loss
           elif self._params['downstream_strategy'] == 'both_then_class':
-            if epoch >= 50:
+            if epoch >= min(self._params['max_epochs'] // 2, 50):
               step_loss = activity_loss
             else:
               step_loss += self._params['activity_weight']*activity_loss
@@ -329,15 +328,15 @@ class ModelFn(object):
         eval_accuracy = eval_loss[2]
         # eval_loss = eval_loss[0]
 
-      self._scalars['eval_loss'] = eval_loss[0]
+      self._scalars['eval_loss'] = eval_loss[0] if self._params['predict_activity'] else eval_loss
+
       print("[INFO] ({}) Epoch {:04d}; eval_loss: {:.4f}; lr: {:.2e}".format(
-          thisname, e, eval_loss[0], self._params['learning_rate'])+act_log)
+          thisname, e, self._scalars['eval_loss'], self._params['learning_rate'])+act_log)
 
       self.write_summary(e)
 
       # wandb_logs = {"train loss": epoch_loss, "train activity loss": act_loss, "eval loss": eval_loss, "eval activity loss":  eval_activity_loss, "eval accuracy": eval_accuracy}
       # wandb.log(wandb_logs)
-
 
       model_path = os.path.join(
           self._params['model_prefix'], 'models', 'ckpt_epoch_%04d.pt'%e)
@@ -392,7 +391,7 @@ class ModelFn(object):
     if self._params['predict_activity']:
       self._writer.add_scalars(
           'loss/class_loss', 
-          {'train': self._scalars['act_loss_train'], 'eval': self._scalars['act_loss_eval']}, 
+          {'train': self._scalars['act_loss_train']},  # , 'eval': self._scalars['act_loss_eval'] --> removed as act_loss_eval is not updated.
           epoch
       )
       self._writer.add_scalar('class/accuracy', self._scalars['accuracy'], epoch)
@@ -442,7 +441,7 @@ class ModelFn(object):
   def update_learning_rate(self, epoch_step, mode='stepwise'):
     """Update learning rate handler updating only when the mode matches."""
     if self._params['lr_schedule_type'] == mode:
-      self._lr_scheduler.step(epoch_step)
+      self._lr_scheduler.step()  # removed param epoch_step as passing epochs to scheduler is deprecated
       self._writer.add_scalar(
           'learning_rate/lr', self._params['learning_rate'], epoch_step)
       self._lr_db_curve.append([self._params['learning_rate'], epoch_step])
@@ -546,7 +545,7 @@ class ModelFn(object):
 
     for (i, sample) in tqdm.tqdm(enumerate(self._eval_dataset_fn)):
       for k in sample.keys():
-        if k=='action_str':
+        if k == 'action_str':
           continue
         sample[k] = sample[k].to(_DEVICE)
 
@@ -581,7 +580,7 @@ class ModelFn(object):
       #   # break
 
 
-      eval_loss+= pose_loss
+      eval_loss += pose_loss
 
     eval_loss /= N
 

@@ -152,7 +152,10 @@ def save_fold_files(path_to_data, output_path, skip_files_path):
   
 
 def read_sequence_kinect_skeletons(path_file):
-  """Reads the text file provided in the 
+  """Reads the text file `path_file` which represents information from a video and returns:
+    -> bodies: dict of body_id: joints pairs where joints is an ndarray of size [framecount, joints, 3].
+              joints contains 3D locations of all tracked joints (25) across all frames in the video.
+    -> seq_info: tuple containing (setup_id, camera_id, subject_id, replication_id, activity_id)
   """
   fid = open(path_file, 'r')
 
@@ -251,12 +254,12 @@ class NTURGDDatasetSkeleton(torch.utils.data.Dataset):
 
   def compute_norm_stats(self, data):
     self._norm_stats = {}
-    mean = np.mean(data, axis=0)
-    std = np.mean(data, axis=0)
+    mean = np.mean(data, axis=0)  # computes the mean [16, 3] across all frames in the dataset (i.e. mean across all joints in all frames concatenated from all videos) 
+    std = np.std(data, axis=0)  # was np.mean before – fixed it assuming that is vv likely a typo 
     std[np.where(std<_MIN_STD)] = 1
 
-    self._norm_stats['mean'] = mean.ravel()
-    self._norm_stats['std'] = std.ravel()
+    self._norm_stats['mean'] = mean.ravel() # flattens mean into a 1-D array
+    self._norm_stats['std'] = std.ravel() # flattens std into a 1-D array
 
   def load_compute_norm_stats(self, data):
     mean_path = os.path.join(self._params['data_path'], 'mean.npy')
@@ -284,6 +287,7 @@ class NTURGDDatasetSkeleton(torch.utils.data.Dataset):
       self._data[k] = tmp_data
 
   def load_data(self):
+    # NEED TO MODIFY CODE BELOW
     seq_files = self.read_fold_file(self._fold_file)
     self._data = {}
     all_dataset = []
@@ -293,11 +297,11 @@ class NTURGDDatasetSkeleton(torch.utils.data.Dataset):
       sequence_file = os.path.join(self._params['data_path'], 
           'nturgb+d_skeletons', sequence_file)
 
-      # the sequence key contains
-      # (setup_id, camera_id, subject_id, replication_id, activity_id)
-      # sequence shape [num_frames, 25, 3]
+      # action_sequence is a dict of body_id: joints pairs. Stores joints ndarrays for all tracked bodies in a video.
+      # where joints contains 3D locations of all tracked joints (25) across all frames for a single body in the video.
+      # joints.shape = [num_frames, 25, 3]
+      # seq_key contains (setup_id, camera_id, subject_id, replication_id, activity_id)
       action_sequence, seq_key = read_sequence_kinect_skeletons(sequence_file)
-
 
       # added code, there are no actors in sequence
       if len(action_sequence) == 0:
@@ -307,31 +311,43 @@ class NTURGDDatasetSkeleton(torch.utils.data.Dataset):
       # if len(all_dataset) > 100:
       #   break
       
+      # Selects joints for the main actor in video
+      # Actor selected has the highest sum of variances across all 3 axes (X, Y, Z)
       action_sequence = select_sequence_based_var(action_sequence)
-      # sequence shape [num_frames, 16, 3]
+      
+      # Selects the 16 major joints using _MAJOR_JOINTS
+      # action_sequence.shape = [num_frames, 16, 3]
       action_sequence = action_sequence[:, _MAJOR_JOINTS, :]
+      # NEED TO MODIFY CODE ABOVE. Expect action_sequence.shape = [num_frames, 16, 3] going forward.
 
       # Only consider sequences with more than _MIN_REQ_FRAMES frames
       if action_sequence.shape[0]<_MIN_REQ_FRAMES:
         continue
 
-      # center joints in the spine of the skeleton
+      # center joints in the spine of the skeleton (i.e. set spine joint to the 3D space's origin in each frame)
       root_sequence =  np.expand_dims(action_sequence[:, _SPINE_ROOT, :], axis=1)
       action_sequence = action_sequence - root_sequence
+      
+      # action_sequence.shape = [num_frames, 16 (num major joints), 3 (since we are in 3D space)]
       T, N, D = action_sequence.shape
+      
+      # keep track of num_frames in this video
       seq_lens.append(T)
-      # total_frames x n_joints*3
+      
+      # reshape action_sequence to [total_frames, n_major_joints*3] and in _data dict as value to the key seq_key
       self._data[seq_key] = action_sequence.reshape((T, -1))
+      
+      # append action_sequence for this video w/ shape = [num_frames, 16 (num major joints), 3 (since we are in 3D space)] to all_dataset
       all_dataset.append(action_sequence)
 
-    all_dataset = np.concatenate(all_dataset, axis=0)
-    self.load_compute_norm_stats(all_dataset)
-    self.normalize_data()
+    all_dataset = np.concatenate(all_dataset, axis=0)  # shape: [total_frames_in_dataset, 16, 3]
+    self.load_compute_norm_stats(all_dataset)  # compute dataset mean and std
+    self.normalize_data()  # normalize joints stored in _data dict using computed mean and std
 
-    self._pose_dim = self._norm_stats['std'].shape[-1]
+    self._pose_dim = self._norm_stats['std'].shape[-1]  # dim in which joints exist = 16*3 (16 joints, stored in 3D space)
     self._data_dim = self._pose_dim
 
-    self._data_keys = list(self._data.keys())
+    self._data_keys = list(self._data.keys())  # store all seq_key i.e. (setup_id, camera_id, subject_id, replication_id, activity_id) for all vids
     thisname = self.__class__.__name__
     print('[INFO] ({}) The min seq len for mode: {} is: {}'.format(
         thisname, self._mode, min(seq_lens)))
@@ -350,33 +366,35 @@ class NTURGDDatasetSkeleton(torch.utils.data.Dataset):
     """Get item for the training mode."""
     if self._mode == 'train':
       # idx = np.random.choice(len(self._data_keys), 1)[0]
-      idx = np.random.choice(len(self._data_keys))
+      idx = np.random.choice(len(self._data_keys))  # select vid at random (why? is idx not already random?)
 
 
-    the_key = self._data_keys[idx]
+    the_key = self._data_keys[idx]  # tuple: (setup_id, camera_id, subject_id, replication_id, activity_id)
     # the action id in the files come in 1 based index 
-    action_id = the_key[-1] - 1
-    source_seq_len = self._params['source_seq_len']
-    target_seq_len = self._params['target_seq_len']
-    input_size = self._pose_dim
-    pose_size = self._pose_dim
-    total_frames = source_seq_len + target_seq_len
-    src_seq_len = source_seq_len - 1
+    action_id = the_key[-1] - 1  # action_id is the label
+    source_seq_len = self._params['source_seq_len']  # get the standardized length for encoder input
+    target_seq_len = self._params['target_seq_len']  # get the standardized length for decoder input
+    input_size = self._pose_dim  # dim of decoder input
+    pose_size = self._pose_dim  # dim of skeleton output
+    total_frames = source_seq_len + target_seq_len  # num frames needed from selected video
+    src_seq_len = source_seq_len - 1  # to get one frame offset b/w encoder input and decoder output
 
+    # init to zeros
     encoder_inputs = np.zeros((src_seq_len, input_size), dtype=np.float32)
     decoder_inputs = np.zeros((target_seq_len, input_size), dtype=np.float32)
     decoder_outputs = np.zeros((target_seq_len, pose_size), dtype=np.float32)
 
-    N, _ = self._data[the_key].shape
-    start_frame = np.random.randint(0, N-total_frames)
-    # total_framesxn_joints*joint_dim
-    data_sel = self._data[the_key][start_frame:(start_frame+total_frames), :]
+    N, _ = self._data[the_key].shape  # total frames in video
+    start_frame = np.random.randint(0, N-total_frames)  # randomize starting frame for the total_frames to be selected from N
+    # get total_frames from the randomized start_frame from video
+    data_sel = self._data[the_key][start_frame:(start_frame+total_frames), :] # shape: [total_frames, n_joints * joint_dim]
 
-    encoder_inputs[:, 0:input_size] = data_sel[0:src_seq_len,:]
+    encoder_inputs[:, 0:input_size] = data_sel[0:src_seq_len,:]  # first source_seq_len frames selected for encoder input
     decoder_inputs[:, 0:input_size] = \
-        data_sel[src_seq_len:src_seq_len+target_seq_len, :]
-    decoder_outputs[:, 0:pose_size] = data_sel[source_seq_len:, 0:pose_size]
+        data_sel[src_seq_len:src_seq_len+target_seq_len, :]  # next target_seq_len frames selected for decoder input
+    decoder_outputs[:, 0:pose_size] = data_sel[source_seq_len:, 0:pose_size]  # target_seq_len frames selected for decoder output (1 frame offset from input)
 
+    # used in GaitForeMer: decoder input is simply the source_seq_len'th skeleton repeated target_seq_len times
     if self._params['pad_decoder_inputs']:
       query = decoder_inputs[0:1, :]
       decoder_inputs = np.repeat(query, target_seq_len, axis=0)
@@ -385,7 +403,7 @@ class NTURGDDatasetSkeleton(torch.utils.data.Dataset):
         'encoder_inputs': encoder_inputs, 
         'decoder_inputs': decoder_inputs, 
         'decoder_outputs': decoder_outputs,
-        'action_id': action_id,
+        'action_id': action_id,  # label
         'action_str': self._action_str[action_id],
     }
 

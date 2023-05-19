@@ -367,11 +367,11 @@ class PoseTransformer(nn.Module):
                       target_pose_seq=None,
                       mask_target_padding=None,
                       get_attn_weights=False):
-    """Compute forward pass for auto-regressive inferece in test time."""
+    """Compute forward pass for auto-regressive inference in test time."""
     thisdevice = self._encoder_pos_encodings.device
     # the first query pose is the first in the target
     prev_target = target_pose_seq[:, 0, :]
-    # 1) Enconde using the pose embeding
+    # 1) Encode using the pose embeding
     if self._pose_embedding is not None:
       input_pose_seq = self._pose_embedding(input_pose_seq)
       target_pose_seq = self._pose_embedding(target_pose_seq)
@@ -391,7 +391,7 @@ class PoseTransformer(nn.Module):
     memory, enc_attn_weights = self._transformer._encoder(
         input_pose_seq, self._encoder_pos_encodings)
 
-    # get only the first In teory it should only be one target pose at testing
+    # get only the first. In theory it should only be one target pose at testing
     batch_size = memory.size()[1]
     out_pred_seq = torch.FloatTensor(
         batch_size, self._target_seq_length, self._pose_dim).to(thisdevice)
@@ -424,7 +424,7 @@ class PoseTransformer(nn.Module):
       prev_target = pred_pose
       out_pred_seq[:, t, :] = pred_pose.view(-1, self._input_dim)[:, 0:self._pose_dim]
       if self._pose_embedding is not None:
-        pose_code = self._pose_embedding(pred_pose)
+        pose_code = self._pose_embedding(pred_pose[None])
         # [1, batch_size, model_dim]
         pose_code = pose_code.view(-1, batch_size, self._model_dim)
       # [t+1, batch_size, model_dim]
