@@ -22,7 +22,7 @@
 # along with POTR. If not, see <http://www.gnu.org/licenses/>.
 ###############################################################################
 
-# python training/transformer_model_fn.py --non_autoregressive --action=all --pad_decoder_inputs --focal_loss
+# python3 training/transformer_model_fn.py --non_autoregressive --action=all --pad_decoder_inputs --focal_loss
 
 """Implments the model function for the POTR model."""
 
